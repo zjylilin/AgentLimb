@@ -80,7 +80,7 @@ let copyingPrompt = false;
 let clientManagerSignature = '';
 let settingsPage = 'home';
 let toastTimer = null;
-let updateCheckState = { state: 'idle', latestVersion: null, url: 'https://github.com/hooosberg/AgentLimb/releases/latest' };
+let updateCheckState = { state: 'idle', latestVersion: null, url: 'https://github.com/zjylilin/AgentLimb/releases/latest' };
 let updateCheckedOnce = false;
 // Last time the panel saw a live connection. A brief drop (worker suspended,
 // SSE torn down) must not bounce the user back to the "not connected" screen
@@ -875,7 +875,7 @@ function renderUpdateStatus() {
     els.linkUpdateDownload.hidden = true;
   } else if (state === 'available' && latestVersion) {
     els.updateStatus.textContent = text('updateAvailable')(latestVersion, currentVersion);
-    els.linkUpdateDownload.href = url || 'https://github.com/hooosberg/AgentLimb/releases/latest';
+    els.linkUpdateDownload.href = url || 'https://github.com/zjylilin/AgentLimb/releases/latest';
     els.linkUpdateDownload.hidden = false;
     $('row-about-value').textContent = text('updateRowBadge')(latestVersion);
   } else if (state === 'upToDate') {
@@ -897,10 +897,10 @@ async function checkForUpdates() {
   renderUpdateStatus();
   const currentVersion = manifest.version || '0.0.0';
   let latestVersion = null;
-  let releaseUrl = 'https://github.com/hooosberg/AgentLimb/releases/latest';
+  let releaseUrl = 'https://github.com/zjylilin/AgentLimb/releases/latest';
 
   try {
-    const res = await fetch('https://api.github.com/repos/hooosberg/AgentLimb/releases/latest', {
+    const res = await fetch('https://api.github.com/repos/zjylilin/AgentLimb/releases/latest', {
       headers: { Accept: 'application/vnd.github+json' },
       signal: AbortSignal.timeout(4500),
     });
@@ -915,7 +915,7 @@ async function checkForUpdates() {
   } catch (_) { /* fallback to main package.json below */ }
 
   try {
-    const pkgRes = await fetch('https://raw.githubusercontent.com/hooosberg/AgentLimb/main/package.json', {
+    const pkgRes = await fetch('https://raw.githubusercontent.com/zjylilin/AgentLimb/main/package.json', {
       signal: AbortSignal.timeout(4500),
     });
     if (pkgRes.ok) {

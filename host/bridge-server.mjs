@@ -24,6 +24,9 @@ import { randomUUID, randomBytes, createHash, timingSafeEqual } from 'node:crypt
 import { BRIDGE_HOST, HOME_DIR_NAME, APP_VERSION, APP_BUILD, WIRE, resolveBridgePorts } from '../kernel/shared/constants.js';
 
 export function agentlimbHome() {
+  // 支持通过 AGENTLIMB_HOME 环境变量将运行时与配对数据目录指定到 D 盘（如 D:\github\.agentlimb），避免写入 C 盘
+  const customHome = String(process.env.AGENTLIMB_HOME || '').trim();
+  if (customHome) return customHome;
   return join(process.env.HOME || process.env.USERPROFILE || homedir(), HOME_DIR_NAME);
 }
 
