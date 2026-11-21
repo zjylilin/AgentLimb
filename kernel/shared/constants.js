@@ -89,7 +89,7 @@ export const DISCOVERY = {
 /** chrome.storage.local keys */
 export const STORAGE_KEYS = {
   onboardUntil: 'agentlimb.onboardUntil', // epoch ms; while in the future, the next unknown client is trusted
-  autoTrust: 'agentlimb.autoTrust', // default ON: any local MCP host that says hello is trusted; false restores the copy-prompt window
+  autoTrust: 'agentlimb.autoTrust', // 默认关闭（false）：新客户端必须通过「复制连接提示词」30分钟窗口授权；显式设为 true 时自动信任本地宿主
   pairedClients: 'agentlimb.pairedClients', // { [clientId]: {id,name,kind,pairedAt} }
   lastClient: 'agentlimb.lastClient',
   hostPath: 'agentlimb.hostPath', // user-overridable MCP command path

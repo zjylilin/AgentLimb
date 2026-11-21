@@ -19,7 +19,7 @@ import { createServer } from 'node:http';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { mkdirSync, readFileSync, writeFileSync, existsSync, renameSync, rmSync } from 'node:fs';
-import { randomUUID, createHash } from 'node:crypto';
+import { randomUUID, randomBytes, createHash, timingSafeEqual } from 'node:crypto';
 
 import { BRIDGE_HOST, HOME_DIR_NAME, APP_VERSION, APP_BUILD, WIRE, resolveBridgePorts } from '../kernel/shared/constants.js';
 
@@ -77,8 +77,63 @@ export function loadOrCreateClientId(clientName = 'AI Agent', clientKind = 'gene
   return id;
 }
 
+// 本地 HTTP Tool RPC 鉴权密钥文件路径
+export function rpcTokenPath() {
+  return join(agentlimbHome(), 'rpc-token.json');
+}
+
+// 读取或生成本地 HTTP Tool RPC 鉴权密钥，防止无鉴权调用 POST /api/tool
+export function loadOrCreateRpcToken() {
+  const envToken = String(process.env.AGENTLIMB_RPC_TOKEN || '').trim();
+  if (envToken) return envToken;
+  const file = rpcTokenPath();
+  const existing = readJson(file, null);
+  if (typeof existing?.token === 'string' && existing.token.length >= 32) return existing.token;
+  const token = randomBytes(32).toString('hex');
+  writeJson(file, { token, createdAt: new Date().toISOString() });
+  return token;
+}
+
+// 仅允许 Chrome 扩展源（chrome-extension://<32位a-p扩展ID>）或无 Origin 头的本地进程请求
+const CHROME_EXTENSION_ORIGIN_RE = /^chrome-extension:\/\/[a-p]{32}$/;
+
+function isAllowedOrigin(origin) {
+  if (!origin) return true;
+  return CHROME_EXTENSION_ORIGIN_RE.test(String(origin));
+}
+
+function buildCorsHeaders(origin) {
+  if (origin && CHROME_EXTENSION_ORIGIN_RE.test(String(origin))) {
+    return {
+      'Access-Control-Allow-Origin': String(origin),
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-AgentLimb-Token',
+      Vary: 'Origin',
+    };
+  }
+  return {};
+}
+
+// 常量时间比对 RPC 鉴权密钥，支持 X-AgentLimb-Token 或 Authorization: Bearer <token>
+function verifyRpcToken(req, expectedToken) {
+  if (!expectedToken) return false;
+  const headerToken = req.headers['x-agentlimb-token'];
+  const authHeader = req.headers.authorization;
+  let candidate = typeof headerToken === 'string' ? headerToken.trim() : '';
+  if (!candidate && typeof authHeader === 'string') {
+    const match = /^Bearer\s+(.+)$/i.exec(authHeader.trim());
+    if (match) candidate = match[1].trim();
+  }
+  if (!candidate) return false;
+  const expectedBuf = Buffer.from(String(expectedToken), 'utf8');
+  const candidateBuf = Buffer.from(candidate, 'utf8');
+  if (expectedBuf.length !== candidateBuf.length) return false;
+  return timingSafeEqual(expectedBuf, candidateBuf);
+}
+
 export function createBridge({ clientId, clientName = 'AI Agent', clientKind = 'generic', ports, onLog, onUserMessage, onAuthorized } = {}) {
   const pairedFile = join(agentlimbHome(), 'paired-clients.json');
+  const rpcToken = loadOrCreateRpcToken();
   const candidates = ports?.length ? ports : resolveBridgePorts();
   /** @type {Map<string, {res:any, id:string, token:string, granted:boolean}>} */
   const sseClients = new Map();
@@ -230,11 +285,14 @@ export function createBridge({ clientId, clientName = 'AI Agent', clientKind = '
   // ── HTTP ───────────────────────────────────────────────────────────────────
   async function handleRequest(req, res) {
     const url = new URL(req.url, `http://${req.headers.host}`);
-    const cors = {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
-    };
+    const origin = req.headers.origin;
+    // 拦截所有非 Chrome 扩展的网页跨源请求，防止恶意网页通过 CSRF/CORS 探测或操控本地桥接
+    if (!isAllowedOrigin(origin)) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: 'forbidden origin' }));
+      return;
+    }
+    const cors = buildCorsHeaders(origin);
 
     if (req.method === 'OPTIONS') {
       res.writeHead(204, cors);
@@ -261,8 +319,13 @@ export function createBridge({ clientId, clientName = 'AI Agent', clientKind = '
       return;
     }
 
-    // HTTP Tool RPC: 允许本地脚本直接通过 POST /api/tool 调用任意浏览器工具
+    // HTTP Tool RPC: 强制校验本地 RPC 鉴权密钥后才允许调用浏览器工具
     if (req.method === 'POST' && url.pathname === '/api/tool') {
+      if (!verifyRpcToken(req, rpcToken)) {
+        res.writeHead(401, { ...cors, 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: 'unauthorized: valid X-AgentLimb-Token required' }));
+        return;
+      }
       const chunks = [];
       for await (const chunk of req) chunks.push(chunk);
       try {
@@ -518,7 +581,7 @@ export function createBridge({ clientId, clientName = 'AI Agent', clientKind = '
       // off makes HELLO → GRANT effectively free.
       try { req.socket.setNoDelay(true); } catch (_) { /* ignore */ }
       handleRequest(req, res).catch((error) => {
-        res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.writeHead(500, { ...buildCorsHeaders(req.headers.origin), 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: false, error: error.message }));
       });
     });
@@ -601,6 +664,7 @@ export function createBridge({ clientId, clientName = 'AI Agent', clientKind = '
     sayToUser,
     isPaired,
     getPort: () => port,
+    getRpcToken: () => rpcToken,
     getActiveBrowser: () => activeBrowserId != null,
     listBrowsers,
     connectionStatus,

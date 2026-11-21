@@ -116,15 +116,19 @@ test('a saved client needs no window, and the window never authorizes two', asyn
   assert.equal(bridge.getStatus().unauthorized.length, 1);
 });
 
-test('default: installing the host is the authorization — an unknown AI connects with no click', async (t) => {
-  // autoTrust unset (never touched) must behave as ON.
+test('default: autoTrust unset behaves as OFF — an unknown AI requires a Copy click', async (t) => {
+  // 安全加固后：autoTrust 未设置（null/undefined）时默认关闭，未知 AI 连接需点击复制开启授权窗口
   const { bridge, posts, openedTabs, store, emit } = await setup(t, {}, { autoTrust: null });
   await emit({ t: WIRE.HELLO, client: { id: 'fresh', name: 'Fresh AI' } });
+  assert.equal(posts.filter((frame) => frame.t === WIRE.GRANT).at(-1).ok, false);
+  assert.equal(bridge.getStatus().clients.find((c) => c.id === 'fresh').paired, false);
+  assert.equal(bridge.getStatus().unauthorized.length, 1);
+  assert.equal(openedTabs.length, 0);
+
+  await bridge.openOnboarding();
   assert.equal(posts.filter((frame) => frame.t === WIRE.GRANT).at(-1).ok, true);
   assert.equal(bridge.getStatus().clients.find((c) => c.id === 'fresh').paired, true);
-  assert.equal(bridge.getStatus().unauthorized.length, 0);
-  assert.equal(openedTabs.length, 0);
-  assert.ok(store.records[STORAGE_KEYS.pairedClients].fresh || bridge.getStatus().clients.find((c) => c.id === 'fresh').paired, 'trust is remembered for next time');
+  assert.ok(store.records[STORAGE_KEYS.pairedClients].fresh || bridge.getStatus().clients.find((c) => c.id === 'fresh').paired);
 });
 
 test('auto-authorize on does not need (or spend) the copy window', async (t) => {

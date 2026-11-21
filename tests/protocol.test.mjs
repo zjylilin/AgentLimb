@@ -182,13 +182,13 @@ async function post(port, frame) {
   return res.json();
 }
 
-async function postRpc(port, payload) {
+async function postRpc(port, payload, headers = {}) {
   const res = await fetch(`http://127.0.0.1:${port}/api/tool`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...headers },
     body: JSON.stringify(payload),
   });
-  return res.json();
+  return { status: res.status, body: await res.json() };
 }
 
 async function discoverPort(expectedName, timeoutMs = 15000) {
@@ -746,6 +746,24 @@ test('HTTP Tool RPC: direct POST /api/tool call with multi-browser routing suppo
   });
 
   const { port } = await discoverPort('Rpc Agent');
+  // 读取当前测试 HOME 目录下自动生成的本地 RPC 鉴权密钥
+  const { token: rpcToken } = JSON.parse(readFileSync(join(home, '.agentlimb', 'rpc-token.json'), 'utf8'));
+
+  // 0. 安全校验：未携带鉴权密钥调用 POST /api/tool 必须返回 401，非法网页 Origin 必须返回 403
+  const unauthRes = await postRpc(port, { tool: 'ping', arguments: {} });
+  assert.equal(unauthRes.status, 401);
+  assert.equal(unauthRes.body.ok, false);
+
+  const badOriginRes = await fetch(`http://127.0.0.1:${port}/health`, {
+    headers: { Origin: 'https://evil.example.com' },
+  });
+  assert.equal(badOriginRes.status, 403);
+
+  const extOriginRes = await fetch(`http://127.0.0.1:${port}/health`, {
+    headers: { Origin: 'chrome-extension://hldldfepjhljhbcneojddjkkodkjglof' },
+  });
+  assert.equal(extOriginRes.status, 200);
+  assert.equal(extOriginRes.headers.get('access-control-allow-origin'), 'chrome-extension://hldldfepjhljhbcneojddjkkodkjglof');
 
   const sse = new SseClient(`http://127.0.0.1:${port}/events?b=tok-rpc`);
   t.after(async () => {
@@ -761,12 +779,12 @@ test('HTTP Tool RPC: direct POST /api/tool call with multi-browser routing suppo
     browser: { id: 'Profile-rpc01', label: 'rpc-browser' },
   })).ok, true);
 
-  // 1. Successful tool execution over POST /api/tool
+  // 1. 携带正确鉴权密钥时，POST /api/tool 正常执行
   const rpcPromise = postRpc(port, {
     tool: 'javascript_eval',
     arguments: { expression: '1 + 1' },
     timeoutMs: 5000,
-  });
+  }, { 'X-AgentLimb-Token': rpcToken });
 
   const toolCall = await sse.waitFor((f) => f.t === WIRE.TOOL_CALL && f.tool === 'javascript_eval');
   assert.equal(toolCall.args.expression, '1 + 1');
@@ -780,14 +798,15 @@ test('HTTP Tool RPC: direct POST /api/tool call with multi-browser routing suppo
   });
 
   const rpcRes = await rpcPromise;
-  assert.equal(rpcRes.ok, true);
-  assert.equal(rpcRes.result.result, 2);
+  assert.equal(rpcRes.status, 200);
+  assert.equal(rpcRes.body.ok, true);
+  assert.equal(rpcRes.body.result.result, 2);
 
-  // 2. Error handling when browser rejects or fails
+  // 2. 浏览器执行报错时正确透传错误信息
   const failPromise = postRpc(port, {
     tool: 'click_element',
     arguments: { selector: '#missing' },
-  });
+  }, { Authorization: `Bearer ${rpcToken}` });
 
   const failCall = await sse.waitFor((f) => f.t === WIRE.TOOL_CALL && f.tool === 'click_element');
   await post(port, {
@@ -799,6 +818,6 @@ test('HTTP Tool RPC: direct POST /api/tool call with multi-browser routing suppo
   });
 
   const failRes = await failPromise;
-  assert.equal(failRes.ok, false);
-  assert.match(failRes.error, /element not found/);
+  assert.equal(failRes.body.ok, false);
+  assert.match(failRes.body.error, /element not found/);
 });

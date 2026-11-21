@@ -465,10 +465,8 @@ export function createBridgeClient({ onStatus, onToolCall, onAgentMessage, disco
         // A remembered client that merely reconnects must NOT steal the chat
         // window from whoever owns it — only a fresh grant takes over.
         const remembered = record.paired;
-        // Installing the host is the user's consent: by default a local MCP host
-        // that connects is trusted without any click. The copy-prompt window is
-        // only the stricter mode, for users who switch auto-authorize off.
-        const auto = !remembered && (await chrome.storage.local.get(STORAGE_KEYS.autoTrust))[STORAGE_KEYS.autoTrust] !== false;
+        // 安全加固：默认关闭自动信任（仅当用户在设置中显式开启 === true 时才自动放行），默认必须通过点击「复制连接提示词」开启的 30 分钟窗口授权
+        const auto = !remembered && (await chrome.storage.local.get(STORAGE_KEYS.autoTrust))[STORAGE_KEYS.autoTrust] === true;
         const isSameClient = client.id === selectedId || (activeChannel && activeChannel.clientId === client.id);
         const takeOver = !remembered || isSameClient || !live(activeChannel);
         if (remembered || auto || await onboarding.consume()) {

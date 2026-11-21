@@ -172,8 +172,8 @@ const text = (key) => ({
   copyPath: english ? 'Copy' : '复制',
   autoTrustLabel: english ? 'Auto-authorize AI tools' : '自动授权 AI 工具',
   autoTrustHint: english
-    ? 'On (default): an AI tool whose MCP host you installed is trusted the moment it connects — no copy-prompt click. Off: each new AI needs a Copy click first. You can always remove a trusted AI under Connected AIs.'
-    : '开启（默认）：你装了 MCP 宿主的 AI 工具一连上就受信，不用再点复制提示词。关闭后每个新 AI 都要先点一次复制。已授权的 AI 随时可在「已连接」里移除。',
+    ? 'Off (default): each new AI needs a Copy connection prompt click first. On: an AI tool whose MCP host you installed is trusted the moment it connects. You can always remove a trusted AI under Connected AIs.'
+    : '关闭（默认）：每个新 AI 都要先点一次「复制连接提示词」才允许接入。开启后，装了 MCP 宿主的 AI 工具一连上即自动受信。已授权的 AI 随时可在「已连接」里移除。',
   aboutRow: english ? 'About AgentLimb' : '关于 AgentLimb',
   about: english ? 'AgentLimb connects AI assistants to Chrome so they can view pages and perform browser tasks with your authorization. Everything stays on your machine.' : 'AgentLimb 把 AI 助手连接到 Chrome，让它在你的授权下查看页面并执行浏览器任务。所有数据都留在本机。',
   version: english ? 'Version' : '版本',
@@ -845,7 +845,8 @@ els.btnSaveBrowserLabel.addEventListener('click', async () => {
   }
 });
 
-chrome.storage.local.get(STORAGE_KEYS.autoTrust).then((r) => { $('auto-trust-toggle').checked = r[STORAGE_KEYS.autoTrust] !== false; });
+// 安全加固：默认关闭自动授权，仅当显式存储为 true 时勾选
+chrome.storage.local.get(STORAGE_KEYS.autoTrust).then((r) => { $('auto-trust-toggle').checked = r[STORAGE_KEYS.autoTrust] === true; });
 $('auto-trust-toggle').addEventListener('change', () => {
   void chrome.storage.local.set({ [STORAGE_KEYS.autoTrust]: $('auto-trust-toggle').checked });
 });

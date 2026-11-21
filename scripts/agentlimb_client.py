@@ -11,11 +11,29 @@ Features:
 """
 
 import json
+import os
+from pathlib import Path
 import urllib.request
 import urllib.error
 from typing import Any, Dict, List, Optional, Tuple
 
 DEFAULT_PORTS: Tuple[int, ...] = tuple(range(8765, 8781))
+
+
+def load_rpc_token(token: Optional[str] = None) -> str:
+    """读取本地 HTTP Tool RPC 鉴权密钥（优先参数，其次环境变量 AGENTLIMB_RPC_TOKEN，最后 ~/.agentlimb/rpc-token.json）。"""
+    if token and token.strip():
+        return token.strip()
+    env_token = os.environ.get("AGENTLIMB_RPC_TOKEN", "").strip()
+    if env_token:
+        return env_token
+    home = os.environ.get("HOME") or os.environ.get("USERPROFILE") or str(Path.home())
+    token_file = Path(home) / ".agentlimb" / "rpc-token.json"
+    try:
+        data = json.loads(token_file.read_text(encoding="utf-8"))
+        return str(data.get("token") or "").strip()
+    except Exception:
+        return ""
 
 
 def get_bridge_url(host: str = "127.0.0.1", ports: Tuple[int, ...] = DEFAULT_PORTS) -> str:
@@ -50,6 +68,7 @@ def call_tool(
     timeout: float = 60.0,
     host: str = "127.0.0.1",
     ports: Tuple[int, ...] = DEFAULT_PORTS,
+    token: Optional[str] = None,
 ) -> Any:
     """Invoke an AgentLimb browser tool over HTTP POST /api/tool."""
     payload = {
@@ -59,10 +78,14 @@ def call_tool(
     }
     data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     url = get_bridge_url(host=host, ports=ports)
+    rpc_token = load_rpc_token(token)
+    headers = {"Content-Type": "application/json"}
+    if rpc_token:
+        headers["X-AgentLimb-Token"] = rpc_token
     req = urllib.request.Request(
         url,
         data=data,
-        headers={"Content-Type": "application/json"},
+        headers=headers,
         method="POST",
     )
     try:
