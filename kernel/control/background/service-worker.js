@@ -6,7 +6,7 @@
  * not the panel is open (the panel is only a status/chat surface).
  */
 
-import { MESSAGE_TYPES } from '../../shared/constants.js';
+import { MESSAGE_TYPES, isBlockedUrl } from '../../shared/constants.js';
 import { createDebuggerManager } from './debugger.js';
 import { createRouter } from './router.js';
 import { createTabMarker } from './tab-marker.js';
@@ -127,9 +127,16 @@ function bootstrap() {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (!tab) return null;
       const base = { tabId: tab.id, url: tab.url || '', title: tab.title || '' };
-      // chrome:// pages, the Web Store, PDF viewers: Chrome forbids reading or
-      // driving them. Say so instead of pretending the page is empty.
-      if (!/^https?:/i.test(base.url)) return { ...base, restricted: true };
+      // chrome:// pages, the Web Store, PDF viewers, or blocked sensitive domains:
+      // forbid reading or screenshotting them.
+      if (!/^https?:/i.test(base.url) || isBlockedUrl(base.url)) {
+        return {
+          tabId: tab.id,
+          url: isBlockedUrl(base.url) ? '[blocked by domain policy]' : base.url,
+          title: isBlockedUrl(base.url) ? '[blocked by domain policy]' : base.title,
+          restricted: true,
+        };
+      }
       const snap = await chrome.tabs.sendMessage(
         tab.id,
         { type: 'AGENTLIMB_PAGE_SNAPSHOT', options: { maxText: 2500, maxElements: 30 } },

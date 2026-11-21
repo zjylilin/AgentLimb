@@ -150,3 +150,134 @@ export const CAPABILITIES = [
   'tab_management',
   'mcp_bridge',
 ];
+
+/**
+ * 浏览器域名访问安全策略（默认黑名单模式）：
+ * - allowedDomains 保持为空数组 []，代表除黑名单外的所有常规网站与自媒体分发平台（如公众号 mp.weixin.qq.com、小红书、抖音、B站、知乎等）均直接放行，新增平台无需改代码。
+ * - blockedDomains 封锁网银、支付、私人邮箱与云服务器控制台（自动匹配主域名及其所有子域名）。
+ */
+export const DOMAIN_POLICY = {
+  allowedDomains: [],
+  blockedDomains: [
+    // 1. 国内各大网银与金融机构
+    'icbc.com.cn',
+    'ccb.com',
+    'abchina.com',
+    '95599.cn',
+    'boc.cn',
+    'bankcomm.com',
+    'cmbchina.com',
+    'psbc.com',
+    'spdb.com.cn',
+    'cib.com.cn',
+    'citicbank.com',
+    'cmbc.com.cn',
+    'cebbank.com',
+    'bank.pingan.com',
+    'hxb.com.cn',
+    'cgbchina.com.cn',
+    '95516.com',
+    'unionpay.com',
+    // 2. 国际银行、券商与加密资产交易平台
+    'hsbc.com',
+    'citibank.com',
+    'chase.com',
+    'bankofamerica.com',
+    'wellsfargo.com',
+    'binance.com',
+    'okx.com',
+    'coinbase.com',
+    // 3. 支付与钱包平台（精确封锁 pay.weixin.qq.com，不影响公众号 mp.weixin.qq.com 和视频号 channels.weixin.qq.com）
+    'alipay.com',
+    'pay.weixin.qq.com',
+    'tenpay.com',
+    'paypal.com',
+    'stripe.com',
+    'wise.com',
+    // 4. 私人与企业邮箱
+    'mail.google.com',
+    'outlook.live.com',
+    'outlook.office.com',
+    'outlook.office365.com',
+    'mail.qq.com',
+    'exmail.qq.com',
+    'mail.163.com',
+    'mail.126.com',
+    'yeah.net',
+    'mail.aliyun.com',
+    'mail.sina.com.cn',
+    'mail.sohu.com',
+    'mail.10086.cn',
+    'mail.189.cn',
+    'proton.me',
+    'protonmail.com',
+    // 5. 云服务器与基础设施管理控制台
+    'console.aliyun.com',
+    'account.aliyun.com',
+    'ram.console.aliyun.com',
+    'ecs.console.aliyun.com',
+    'console.cloud.tencent.com',
+    'console.huaweicloud.com',
+    'console.bce.baidu.com',
+    'console.volcengine.com',
+    'portal.qiniu.com',
+    'console.aws.amazon.com',
+    'signin.aws.amazon.com',
+    'console.cloud.google.com',
+    'portal.azure.com',
+    'dash.cloudflare.com',
+    'cloud.digitalocean.com',
+  ],
+};
+
+// 判断主机名是否命中域名规则列表（精确匹配或作为子域名匹配）
+export function matchDomainList(hostname, list) {
+  const host = String(hostname || '').toLowerCase().replace(/\.$/, '');
+  if (!host || !Array.isArray(list)) return null;
+  for (const raw of list) {
+    const rule = String(raw || '').trim().toLowerCase().replace(/^\*\./, '').replace(/\.$/, '');
+    if (!rule) continue;
+    if (host === rule || host.endsWith(`.${rule}`)) return rule;
+  }
+  return null;
+}
+
+// 检查指定 URL 是否被域名黑名单（或非空时的白名单）拦截
+export function isBlockedUrl(rawUrl, policy = DOMAIN_POLICY) {
+  const str = String(rawUrl || '').trim();
+  if (!str || str === 'about:blank') return false;
+  let hostname = '';
+  try {
+    hostname = new URL(str).hostname;
+  } catch (_) {
+    return false;
+  }
+  if (!hostname) return false;
+  const blockedRule = matchDomainList(hostname, policy?.blockedDomains);
+  if (blockedRule) return true;
+  if (Array.isArray(policy?.allowedDomains) && policy.allowedDomains.length > 0) {
+    return !matchDomainList(hostname, policy.allowedDomains);
+  }
+  return false;
+}
+
+// 断言目标 URL 允许被 AI 访问或操控，若命中黑名单则直接抛出拦截错误
+export function assertAllowedUrl(rawUrl, policy = DOMAIN_POLICY) {
+  const str = String(rawUrl || '').trim();
+  if (!str || str === 'about:blank') return;
+  let hostname = '';
+  try {
+    hostname = new URL(str).hostname;
+  } catch (_) {
+    return;
+  }
+  if (!hostname) return;
+  const blockedRule = matchDomainList(hostname, policy?.blockedDomains);
+  if (blockedRule) {
+    throw new Error(`Blocked by domain policy: "${hostname}" matches blocked domain "${blockedRule}" (banking, payment, private email, or cloud console).`);
+  }
+  if (Array.isArray(policy?.allowedDomains) && policy.allowedDomains.length > 0 && !matchDomainList(hostname, policy.allowedDomains)) {
+    throw new Error(`Blocked by domain policy: "${hostname}" is not in allowedDomains.`);
+  }
+}
+

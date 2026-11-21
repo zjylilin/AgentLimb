@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 import { HOST_TOOLS, findTool } from '../kernel/control/host/tools.js';
 import { buildConnectionPrompt } from '../kernel/prompt/build-prompt.js';
+import { DOMAIN_POLICY, isBlockedUrl, assertAllowedUrl } from '../kernel/shared/constants.js';
 
 test('tool catalog: unique names and valid schemas', () => {
   const names = HOST_TOOLS.map((t) => t.name);
@@ -85,4 +86,45 @@ test('Chrome manifest requests no scripting permission and retains static conten
     manifest.content_scripts.map((script) => script.js),
     [['kernel/control/content/a11y-tree.js'], ['kernel/control/content/indicator.js']],
   );
+});
+
+test('domain policy: default blacklist mode blocks banking, payment, webmail, and cloud consoles while allowing media platforms', () => {
+  // 默认保持 allowedDomains 为空数组，启用省心的黑名单模式
+  assert.deepEqual(DOMAIN_POLICY.allowedDomains, []);
+
+  // 四大高敏类别（网银、支付、私人邮箱、云服务器控制台）及其子域名均被封锁
+  const blockedSamples = [
+    'https://mybank.icbc.com.cn/icbc/newperbank/perbank3/frame/frame_index.jsp',
+    'https://www.cmbchina.com/',
+    'https://auth.alipay.com/login/index.htm',
+    'https://pay.weixin.qq.com/index.php',
+    'https://mail.google.com/mail/u/0/#inbox',
+    'https://mail.qq.com/cgi-bin/frame_html',
+    'https://mail.163.com/',
+    'https://home.console.aliyun.com/',
+    'https://console.cloud.tencent.com/cvm',
+    'https://console.aws.amazon.com/ec2',
+    'https://dash.cloudflare.com/',
+  ];
+  for (const url of blockedSamples) {
+    assert.equal(isBlockedUrl(url), true, `expected ${url} to be blocked`);
+    assert.throws(() => assertAllowedUrl(url), /Blocked by domain policy/);
+  }
+
+  // 主流自媒体分发平台（含微信公众号、视频号、小红书、抖音、B站、知乎、头条、X、YouTube）全部直接放行
+  const allowedMediaSamples = [
+    'https://mp.weixin.qq.com/',
+    'https://channels.weixin.qq.com/platform',
+    'https://creator.xiaohongshu.com/publish/publish',
+    'https://creator.douyin.com/creator-micro/content/upload',
+    'https://member.bilibili.com/platform/upload/text/edit',
+    'https://zhuanlan.zhihu.com/write',
+    'https://mp.toutiao.com/profile_v4/graphic/publish',
+    'https://x.com/compose/post',
+    'https://studio.youtube.com/',
+  ];
+  for (const url of allowedMediaSamples) {
+    assert.equal(isBlockedUrl(url), false, `expected media platform ${url} to be allowed`);
+    assert.doesNotThrow(() => assertAllowedUrl(url));
+  }
 });

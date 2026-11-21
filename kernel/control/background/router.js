@@ -9,6 +9,8 @@
  *   - batch actions run in one round trip
  */
 
+import { assertAllowedUrl, isBlockedUrl } from '../../shared/constants.js';
+
 const KEY_MAP = {
   enter: { key: 'Enter', code: 'Enter', vk: 13 },
   tab: { key: 'Tab', code: 'Tab', vk: 9 },
@@ -103,6 +105,8 @@ export function createRouter({ debugger: dbg, indicator, marker = null }) {
     if (!INJECTABLE.test(tab.url || '')) {
       throw new Error(`tab is not an http(s)/file page: ${tab.url || '(still initializing — retry in a moment)'}`);
     }
+    // 域名安全策略检查：禁止读取、点击、输入、截图或在黑名单域名（网银、支付、邮箱、云控制台）上执行 JS
+    assertAllowedUrl(tab.url);
   }
 
   async function pageMessage(tab, message, timeoutMs = 8000) {
@@ -186,15 +190,17 @@ export function createRouter({ debugger: dbg, indicator, marker = null }) {
   }
 
   function describeTab(tab) {
+    const blocked = isBlockedUrl(tab.url || '');
     return {
       id: tab.id,
       windowId: tab.windowId,
-      title: tab.title || '',
-      url: tab.url || '',
+      title: blocked ? '[blocked by domain policy]' : (tab.title || ''),
+      url: blocked ? '[blocked by domain policy]' : (tab.url || ''),
       active: !!tab.active,
       status: tab.status || '',
       muted: tab.mutedInfo?.muted === true,
       groupId: tab.groupId ?? -1,
+      ...(blocked ? { blocked: true } : {}),
     };
   }
 
@@ -244,6 +250,8 @@ export function createRouter({ debugger: dbg, indicator, marker = null }) {
       if (targetUrl !== 'about:blank' && !/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(targetUrl)) {
         targetUrl = `https://${targetUrl}`;
       }
+      // 在新建标签页打开前校验目标域名是否命中黑名单
+      assertAllowedUrl(targetUrl);
       const created = await chrome.tabs.create({ url: targetUrl, active: active === true });
       // Mark only AI-created tabs. Never regroup the user's existing tabs.
       // While the agent works the group is titled "⏳ AgentLimb" (see service-worker
@@ -419,18 +427,24 @@ export function createRouter({ debugger: dbg, indicator, marker = null }) {
       if (url === 'back') {
         await chrome.tabs.goBack(tab.id);
         if (waitForLoad) await waitForTabLoad(tab.id, timeout);
-        return { ok: true, url: (await chrome.tabs.get(tab.id)).url };
+        const currentUrl = (await chrome.tabs.get(tab.id)).url;
+        assertAllowedUrl(currentUrl);
+        return { ok: true, url: currentUrl };
       }
       if (url === 'forward') {
         await chrome.tabs.goForward(tab.id);
         if (waitForLoad) await waitForTabLoad(tab.id, timeout);
-        return { ok: true, url: (await chrome.tabs.get(tab.id)).url };
+        const currentUrl = (await chrome.tabs.get(tab.id)).url;
+        assertAllowedUrl(currentUrl);
+        return { ok: true, url: currentUrl };
       }
       let targetUrl = String(url || '').trim();
       if (targetUrl && !/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(targetUrl)) {
         targetUrl = `https://${targetUrl}`;
       }
       if (!/^https?:\/\//i.test(targetUrl)) throw new Error(`navigate requires an absolute http(s) URL: ${url}`);
+      // 在导航跳转前校验目标域名是否命中黑名单
+      assertAllowedUrl(targetUrl);
       await chrome.tabs.update(tab.id, { url: targetUrl });
       if (waitForLoad) {
         const load = await waitForTabLoad(tab.id, timeout);
@@ -467,12 +481,14 @@ export function createRouter({ debugger: dbg, indicator, marker = null }) {
 
     async read_console_messages({ tabId, limit, level } = {}) {
       const tab = await resolveTab(tabId);
+      assertAllowedUrl(tab.url);
       const items = dbg.readConsole(tab.id, { limit, level });
       return { ok: true, count: items.length, messages: items };
     },
 
     async read_network_requests({ tabId, limit, urlFilter } = {}) {
       const tab = await resolveTab(tabId);
+      assertAllowedUrl(tab.url);
       const items = dbg.readNetwork(tab.id, { limit, urlFilter });
       return { ok: true, count: items.length, requests: items };
     },
